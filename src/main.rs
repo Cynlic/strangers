@@ -1,10 +1,13 @@
 extern crate rand;
 extern crate gnuplot;
-use rand::Rng;
+use rand::{thread_rng, Rng};
 use gnuplot::*;
 use std::fs::File;
 use std::io::prelude::*;
-
+mod lily;
+mod notetree;
+use lily::*;
+use notetree::*;
 #[allow(dead_code)]
 fn main() {
 
@@ -98,6 +101,55 @@ instr 3
   outs a1/5.0, a2/5.0
 endin
 
+instr 4
+
+  krd rand 1, 10
+  krand abs krd
+  ; Attack time.
+  iattack = 0.8 -  i(krand) 
+  ; Decay time.
+  idecay = 0.02 + i(krand)
+  ; Sustain level.
+  isustain = 0.0001
+  ; Release time.
+  irelease = 0.001
+  ; Delay line control
+  idelay = p5 +i(krand)
+
+  aenv madsr iattack, idecay, isustain, irelease
+
+  aSource vco2 p4/2.0, p5
+  as2 vco2 p4/2.0, p5*3/2.0
+  as3 vco2 p4/2.0, (p5*krand/2.0)
+  as4 vco2 p4/2.0, (p5*3/(2.0+krand))
+  afin = ((aSource+as2+as3+as4) * aenv)
+  aL, aR freeverb afin, afin, 0.5, 0.9, sr, 0
+  adl1 vdelay aL, idelay+(p3*100), 5000
+  adl2 vdelay adl1, idelay+(p3*100), 5000
+  adl3 vdelay adl2, idelay+(p3*100), 5000
+  adl4 vdelay adl3, idelay+(p3*100), 5000
+  adl5 vdelay adl4, idelay+(p3*100), 5000
+  outs aL+adl1+adl2, aR+adl3+adl4
+endin
+
+instr 5
+
+  aLFO vco2 1, 4
+  aenv madsr 2.0, 0.1, 0.00, 0.5
+  kfo = k(aLFO)
+  aSource poscil 1,(kfo+1)*100 + p5
+  as2     poscil 1, (kfo+1)*100 + (p5*4)
+  as3     poscil 1, (kfo+1)*10 + (p5*8/3)
+  as4     poscil 1, (kfo+1)*10 + (p5*8/5)
+  as = as2+as3+as4
+  afilter butterbp aSource, p2*2.0, 100
+  af2     butterbp as, p2*2.0, p3
+  asig = (as - afilter +af2) * aenv * aLFO
+  aL, aR freeverb asig, asig, 0.8, 0.95, sr, 0
+  a1, a2 pan2 aL, 0.0
+  outs a1*2.0, a2*2.0
+endin
+
 </CsInstruments>
 <CsScore>
 
@@ -126,7 +178,7 @@ f1 0 32768 10
     // if we want a melodic texture for our score, we need to advance some amount of time after each note is played
     let mut current_time: f64 = 0.0;
     let mut advance: f64 = 0.0;
-
+    
     //iterate over the data to make our various files
     for col in h_and_i_iter
     {
@@ -137,10 +189,21 @@ f1 0 32768 10
         if freq < 1 {
             freq = 30
         }
-        let instrument = (freq % 3)+1;
+        let instrument = (freq % 5)+1;
 
+        let mut rand = true;
+        if thread_rng().gen_range(0, 100) as i32 > 10{
+            rand = false;
+        }
+
+        /*
+        let note = Note::new(henon_x.abs()*100.0, henon_y.abs()*100.0, ikeda_y.abs()*100.0, rand);
+        let note_n = note.note_name();
+        let note_r = note.note_rhythm();
+        */
         //Lets write that data to our files
-        write!(lily, "\\tuplet 5/1 {{f'4 f'4 f'4 f'4 f'4}}\n");
+        let phrase = notetree::make_phrase();
+        lily.write(phrase.as_bytes());
         write!(file, "i {} {} {} {} {} \n", instrument,
                current_time + henon_x*2.0, ikeda_y.abs()*7.0,
                amplitude/10.0-1.0, freq);
@@ -150,6 +213,7 @@ f1 0 32768 10
         current_time +=ikeda_y.abs()*3.0;
         advance += 1.0;
     }
+    
     file.write_all(aft.as_bytes());
     lily.write_all(lilyclose.as_bytes());
 
@@ -250,7 +314,7 @@ fn tinker (x: f64, y: f64 ) -> (f64, f64){
 }
 
 #[allow(dead_code)]
-fn ikeda (x: f64, y: f64 ) -> (f64, f64){
+fn ikeda (x: f64, y: f64) -> (f64, f64){
     let u: f64 = 0.9;
     let t: f64 = 0.4 - (6.0 / (1.0 + (x * x) + (y * y)));
     let new_x: f64 = 1.0 + (u * ((x * t.cos()) - (y * t.sin())));
@@ -270,7 +334,7 @@ fn iterate_fn (f: &Fn(f64, f64) -> (f64,f64),
     xa = x;
     ya = y;
 
-    for i in 0..100 {
+    for i in 0..600 {
         let new_tuple: (f64, f64) = f(xa,ya);
         if i > 20 {
         xs.push(new_tuple.0);
